@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NotifAI Settings</title>
+  <link rel="stylesheet" href="settings.css">
+</head>
+<body>
+  <div class="container">
+    <h1>Settings</h1>
+
+    <form id="settings-form">
+      <!-- Refresh Interval -->
+      <div class="setting-group">
+        <label for="refresh-interval">Refresh Interval</label>
+        <select id="refresh-interval" name="refresh_interval_minutes">
+          <option value="5">Every 5 minutes</option>
+          <option value="15" selected>Every 15 minutes</option>
+          <option value="30">Every 30 minutes</option>
+          <option value="60">Every 60 minutes</option>
+        </select>
+        <p class="help-text">How often to check Claude usage data</p>
+      </div>
+
+      <!-- Budget Thresholds -->
+      <fieldset class="setting-group">
+        <legend>Budget Thresholds</legend>
+
+        <div class="threshold-row">
+          <label for="under-budget">Under Budget (green)</label>
+          <div class="input-with-suffix">
+            <input type="number" id="under-budget" name="threshold_under_budget"
+                   min="1" max="99" step="1" value="85">
+            <span class="suffix">%</span>
+          </div>
+          <p class="help-text">Usage below this shows green indicator</p>
+        </div>
+
+        <div class="threshold-row">
+          <label for="on-track">Over Budget threshold (red)</label>
+          <div class="input-with-suffix">
+            <input type="number" id="on-track" name="threshold_on_track"
+                   min="2" max="200" step="1" value="115">
+            <span class="suffix">%</span>
+          </div>
+          <p class="help-text">Usage above this shows red indicator</p>
+        </div>
+      </fieldset>
+
+      <!-- Notifications -->
+      <fieldset class="setting-group">
+        <legend>Notifications</legend>
+
+        <div class="checkbox-row">
+          <input type="checkbox" id="notifications-enabled" name="notifications_enabled" checked>
+          <label for="notifications-enabled">Enable notifications</label>
+        </div>
+
+        <div class="threshold-row notification-field" id="notify-approaching-row">
+          <label for="notify-approaching">Notify when approaching</label>
+          <div class="input-with-suffix">
+            <input type="number" id="notify-approaching" name="notify_approaching_percent"
+                   min="1" max="200" step="1" value="100">
+            <span class="suffix">%</span>
+          </div>
+        </div>
+
+        <div class="threshold-row notification-field" id="notify-over-row">
+          <label for="notify-over">Notify when over budget</label>
+          <div class="input-with-suffix">
+            <input type="number" id="notify-over" name="notify_over_budget_percent"
+                   min="1" max="200" step="1" value="115">
+            <span class="suffix">%</span>
+          </div>
+        </div>
+      </fieldset>
+
+      <!-- Validation Errors -->
+      <div id="errors" class="errors" hidden></div>
+
+      <!-- Actions -->
+      <div class="actions">
+        <button type="button" id="reset-btn" class="secondary">Reset to Defaults</button>
+        <div class="spacer"></div>
+        <button type="button" id="cancel-btn" class="secondary">Cancel</button>
+        <button type="submit" id="save-btn" class="primary">Save</button>
+      </div>
+    </form>
+  </div>
+
+  <script src="settings.js" type="module"></script>
+</body>
+</html>

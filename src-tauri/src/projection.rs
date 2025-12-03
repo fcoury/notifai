@@ -85,15 +85,17 @@ impl QuotaProjection {
 
 /// Parse reset time strings like:
 /// - "6:59pm (America/Sao_Paulo)"
+/// - "7pm (America/Sao_Paulo)" - without minutes
 /// - "Dec 8 at 3:59pm (America/Sao_Paulo)"
+/// - "Dec 8 at 4pm (America/Sao_Paulo)" - without minutes
 pub fn parse_reset_time(reset_str: &str) -> Option<DateTime<Local>> {
-    // Pattern 1: Time only "6:59pm (timezone)" or "6:59pm(timezone)"
+    // Pattern 1: Time only "6:59pm (timezone)" or "7pm (timezone)" - minutes optional
     let time_only_re =
-        Regex::new(r"(\d{1,2}):(\d{2})\s*(am|pm)\s*\(([^)]+)\)").ok()?;
+        Regex::new(r"(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*\(([^)]+)\)").ok()?;
 
-    // Pattern 2: Date + time "Dec 8 at 3:59pm (timezone)"
+    // Pattern 2: Date + time "Dec 8 at 3:59pm (timezone)" or "Dec 8 at 4pm (timezone)" - minutes optional
     let date_time_re = Regex::new(
-        r"(\w+)\s+(\d{1,2})\s+at\s+(\d{1,2}):(\d{2})\s*(am|pm)\s*\(([^)]+)\)",
+        r"(\w+)\s+(\d{1,2})\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*\(([^)]+)\)",
     )
     .ok()?;
 
@@ -102,7 +104,8 @@ pub fn parse_reset_time(reset_str: &str) -> Option<DateTime<Local>> {
         let month_str = caps.get(1)?.as_str();
         let day: u32 = caps.get(2)?.as_str().parse().ok()?;
         let hour: u32 = caps.get(3)?.as_str().parse().ok()?;
-        let minute: u32 = caps.get(4)?.as_str().parse().ok()?;
+        // Minutes are optional - default to 0 if not present
+        let minute: u32 = caps.get(4).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
         let am_pm = caps.get(5)?.as_str();
         let tz_str = caps.get(6)?.as_str();
 
@@ -139,7 +142,8 @@ pub fn parse_reset_time(reset_str: &str) -> Option<DateTime<Local>> {
     // Try time-only format
     if let Some(caps) = time_only_re.captures(reset_str) {
         let hour: u32 = caps.get(1)?.as_str().parse().ok()?;
-        let minute: u32 = caps.get(2)?.as_str().parse().ok()?;
+        // Minutes are optional - default to 0 if not present
+        let minute: u32 = caps.get(2).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
         let am_pm = caps.get(3)?.as_str();
         let tz_str = caps.get(4)?.as_str();
 
@@ -204,6 +208,8 @@ pub fn calculate_projection(
     current_percent: f32,
     reset_time: DateTime<Local>,
     period_type: PeriodType,
+    threshold_under_budget: f32,
+    threshold_over_budget: f32,
 ) -> ProjectedUsage {
     let now = Local::now();
     let period_duration = period_type.duration();
@@ -265,10 +271,10 @@ pub fn calculate_projection(
 
     let projected_percent = (current_percent as f64 * total_secs / elapsed_secs) as f32;
 
-    // Determine status based on projected percentage
-    let status = if projected_percent < 85.0 {
+    // Determine status based on projected percentage and configurable thresholds
+    let status = if projected_percent < threshold_under_budget {
         BudgetStatus::UnderBudget
-    } else if projected_percent <= 115.0 {
+    } else if projected_percent <= threshold_over_budget {
         BudgetStatus::OnTrack
     } else {
         BudgetStatus::OverBudget
@@ -283,7 +289,11 @@ pub fn calculate_projection(
 }
 
 /// Calculate projections for all quota types from usage data
-pub fn calculate_all_projections(usage: &UsageData) -> QuotaProjection {
+pub fn calculate_all_projections(
+    usage: &UsageData,
+    threshold_under_budget: f32,
+    threshold_over_budget: f32,
+) -> QuotaProjection {
     let session = usage
         .current_session_percent
         .and_then(|pct| {
@@ -291,7 +301,15 @@ pub fn calculate_all_projections(usage: &UsageData) -> QuotaProjection {
                 .current_session_reset
                 .as_ref()
                 .and_then(|reset| parse_reset_time(reset))
-                .map(|reset_time| calculate_projection(pct, reset_time, PeriodType::Session))
+                .map(|reset_time| {
+                    calculate_projection(
+                        pct,
+                        reset_time,
+                        PeriodType::Session,
+                        threshold_under_budget,
+                        threshold_over_budget,
+                    )
+                })
         });
 
     let week_all = usage
@@ -301,7 +319,15 @@ pub fn calculate_all_projections(usage: &UsageData) -> QuotaProjection {
                 .current_week_all_models_reset
                 .as_ref()
                 .and_then(|reset| parse_reset_time(reset))
-                .map(|reset_time| calculate_projection(pct, reset_time, PeriodType::Weekly))
+                .map(|reset_time| {
+                    calculate_projection(
+                        pct,
+                        reset_time,
+                        PeriodType::Weekly,
+                        threshold_under_budget,
+                        threshold_over_budget,
+                    )
+                })
         });
 
     let week_sonnet = usage
@@ -311,7 +337,15 @@ pub fn calculate_all_projections(usage: &UsageData) -> QuotaProjection {
                 .current_week_sonnet_reset
                 .as_ref()
                 .and_then(|reset| parse_reset_time(reset))
-                .map(|reset_time| calculate_projection(pct, reset_time, PeriodType::Weekly))
+                .map(|reset_time| {
+                    calculate_projection(
+                        pct,
+                        reset_time,
+                        PeriodType::Weekly,
+                        threshold_under_budget,
+                        threshold_over_budget,
+                    )
+                })
         });
 
     QuotaProjection {
@@ -351,8 +385,22 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_time_only_no_minutes() {
+        // Claude sometimes outputs times without minutes like "7pm" instead of "7:00pm"
+        let result = parse_reset_time("7pm (America/Sao_Paulo)");
+        assert!(result.is_some());
+    }
+
+    #[test]
     fn test_parse_date_time() {
         let result = parse_reset_time("Dec 8 at 3:59pm (America/Sao_Paulo)");
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_parse_date_time_no_minutes() {
+        // Claude sometimes outputs times without minutes like "4pm" instead of "4:00pm"
+        let result = parse_reset_time("Dec 8 at 4pm (America/Sao_Paulo)");
         assert!(result.is_some());
     }
 
@@ -363,7 +411,7 @@ mod tests {
 
         // 20% used with 2 hours remaining out of 5 hours
         // Elapsed: 3 hours, so projected = 20% * (5/3) = 33.3% -> UnderBudget
-        let proj = calculate_projection(20.0, reset, PeriodType::Session);
+        let proj = calculate_projection(20.0, reset, PeriodType::Session, 85.0, 115.0);
         assert_eq!(proj.status, BudgetStatus::UnderBudget);
     }
 

@@ -75,13 +75,13 @@ impl NotificationState {
 pub fn check_notifications(
     projection: &QuotaProjection,
     state: &NotificationState,
+    approaching_threshold: f32,
+    over_budget_threshold: f32,
 ) -> Vec<NotificationInfo> {
     let mut notifications = Vec::new();
 
     // Helper to check a single quota
-    let check_quota = |quota_type: QuotaType,
-                       proj: &Option<ProjectedUsage>,
-                       notifications: &mut Vec<NotificationInfo>| {
+    let mut check_quota = |quota_type: QuotaType, proj: &Option<ProjectedUsage>| {
         if let Some(p) = proj {
             // We need reset_time to track notifications per reset period
             // Using projected time as proxy (it's derived from reset_time)
@@ -89,8 +89,8 @@ pub fn check_notifications(
             // Approximate reset_time from time_remaining_secs
             let reset_time = now + chrono::Duration::seconds(p.time_remaining_secs);
 
-            // Check over budget (115%+) - higher priority, check first
-            if p.projected_percent >= 115.0 {
+            // Check over budget - higher priority, check first
+            if p.projected_percent >= over_budget_threshold {
                 if state.should_notify(&quota_type, &NotificationSeverity::OverBudget, reset_time) {
                     notifications.push(NotificationInfo {
                         quota_type: quota_type.clone(),
@@ -100,8 +100,8 @@ pub fn check_notifications(
                     });
                 }
             }
-            // Check approaching (100%+)
-            else if p.projected_percent >= 100.0 {
+            // Check approaching
+            else if p.projected_percent >= approaching_threshold {
                 if state.should_notify(&quota_type, &NotificationSeverity::Approaching, reset_time)
                 {
                     notifications.push(NotificationInfo {
@@ -115,13 +115,9 @@ pub fn check_notifications(
         }
     };
 
-    check_quota(QuotaType::Session, &projection.session, &mut notifications);
-    check_quota(QuotaType::WeekAll, &projection.week_all, &mut notifications);
-    check_quota(
-        QuotaType::WeekSonnet,
-        &projection.week_sonnet,
-        &mut notifications,
-    );
+    check_quota(QuotaType::Session, &projection.session);
+    check_quota(QuotaType::WeekAll, &projection.week_all);
+    check_quota(QuotaType::WeekSonnet, &projection.week_sonnet);
 
     notifications
 }
