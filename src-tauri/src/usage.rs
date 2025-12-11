@@ -185,13 +185,11 @@ fn run_claude_usage() -> Result<String> {
                     saw_loading = true;
                 }
 
-                // Success: Current screen has usage data without loading indicator
-                if saw_loading
-                    && has_percent
-                    && has_current_session
-                    && has_extra_usage
-                    && !has_loading
-                {
+                // Success: Current screen has all required usage data
+                // Note: We don't check !has_loading because the terminal uses line-by-line
+                // updates ([2K[1A sequences) rather than full screen clears, so old content
+                // can linger in our buffer. The presence of all data fields is sufficient.
+                if has_percent && has_current_session && has_extra_usage {
                     debug_log!("Success: Found complete usage data");
                     output = current_screen;
                     break;
