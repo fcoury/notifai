@@ -180,10 +180,10 @@ fn build_usage_menu(app: &AppHandle, state: &AppState) -> Menu<tauri::Wry> {
 /// Get the appropriate icon for the given status
 fn get_status_icon(status: BudgetStatus) -> Image<'static> {
     match status {
-        BudgetStatus::UnderBudget => tauri::include_image!("icons/icon-green.png"),
-        BudgetStatus::OnTrack => tauri::include_image!("icons/icon-yellow.png"),
-        BudgetStatus::OverBudget => tauri::include_image!("icons/icon-red.png"),
-        BudgetStatus::Unknown => tauri::include_image!("icons/icon-gray.png"),
+        BudgetStatus::UnderBudget => tauri::include_image!("icons/tray-green.png"),
+        BudgetStatus::OnTrack => tauri::include_image!("icons/tray-yellow.png"),
+        BudgetStatus::OverBudget => tauri::include_image!("icons/tray-red.png"),
+        BudgetStatus::Unknown => tauri::include_image!("icons/tray-gray.png"),
     }
 }
 
@@ -432,7 +432,7 @@ pub fn run() {
             let app_for_events = app_handle.clone();
 
             let _tray = TrayIconBuilder::with_id("main")
-                .icon(tauri::include_image!("icons/icon-gray.png"))
+                .icon(tauri::include_image!("icons/tray-gray.png"))
                 .tooltip("NotifAI - Claude Usage")
                 .menu(&menu)
                 .show_menu_on_left_click(true)
