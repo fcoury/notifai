@@ -14,6 +14,7 @@ pub mod defaults {
     pub const NOTIFICATIONS_ENABLED: bool = true;
     pub const NOTIFY_APPROACHING_PERCENT: f32 = 100.0;
     pub const NOTIFY_OVER_BUDGET_PERCENT: f32 = 115.0;
+    pub const CODEX_PATH: &str = "codex";
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -24,6 +25,7 @@ pub struct Settings {
     pub notifications_enabled: bool,
     pub notify_approaching_percent: f32,
     pub notify_over_budget_percent: f32,
+    pub codex_path: String,
 }
 
 impl Default for Settings {
@@ -35,6 +37,7 @@ impl Default for Settings {
             notifications_enabled: defaults::NOTIFICATIONS_ENABLED,
             notify_approaching_percent: defaults::NOTIFY_APPROACHING_PERCENT,
             notify_over_budget_percent: defaults::NOTIFY_OVER_BUDGET_PERCENT,
+            codex_path: defaults::CODEX_PATH.to_string(),
         }
     }
 }
@@ -74,6 +77,10 @@ impl Settings {
         if self.notify_over_budget_percent < self.notify_approaching_percent {
             errors
                 .push("Over budget notification must be >= approaching notification".to_string());
+        }
+
+        if self.codex_path.trim().is_empty() {
+            errors.push("Codex path cannot be empty".to_string());
         }
 
         if errors.is_empty() {
@@ -126,6 +133,10 @@ pub fn load_settings(app: &AppHandle) -> Settings {
             .and_then(|v| v.as_f64())
             .map(|v| v as f32)
             .unwrap_or(defaults.notify_over_budget_percent),
+        codex_path: store
+            .get("codex_path")
+            .and_then(|v| v.as_str().map(|s| s.to_string()))
+            .unwrap_or_else(|| defaults::CODEX_PATH.to_string()),
     };
 
     // Validate loaded settings, use defaults if invalid
@@ -163,6 +174,7 @@ pub fn save_settings(app: &AppHandle, settings: &Settings) -> Result<(), String>
         "notify_over_budget_percent",
         json!(settings.notify_over_budget_percent),
     );
+    store.set("codex_path", json!(settings.codex_path));
 
     store.save().map_err(|e| e.to_string())?;
 
@@ -177,6 +189,7 @@ mod tests {
     fn test_default_settings_are_valid() {
         let settings = Settings::default();
         assert!(settings.validate().is_ok());
+        assert_eq!(settings.codex_path, defaults::CODEX_PATH);
     }
 
     #[test]

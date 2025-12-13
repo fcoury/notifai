@@ -1,4 +1,5 @@
 mod notification;
+mod codex;
 mod projection;
 mod settings;
 mod usage;
@@ -21,8 +22,10 @@ use tauri_plugin_notification::NotificationExt;
 
 /// Application state
 struct AppState {
-    usage: Option<usage::UsageData>,
-    projection: Option<QuotaProjection>,
+    usage_claude: Option<usage::UsageData>,
+    usage_codex: Option<usage::UsageData>,
+    projection_claude: Option<QuotaProjection>,
+    projection_codex: Option<QuotaProjection>,
     last_refresh: Option<DateTime<Local>>,
     is_refreshing: AtomicBool,
     settings: Settings,
@@ -31,8 +34,10 @@ struct AppState {
 impl AppState {
     fn new() -> Self {
         Self {
-            usage: None,
-            projection: None,
+            usage_claude: None,
+            usage_codex: None,
+            projection_claude: None,
+            projection_codex: None,
             last_refresh: None,
             is_refreshing: AtomicBool::new(false),
             settings: Settings::default(),
@@ -43,89 +48,119 @@ impl AppState {
 fn build_usage_menu(app: &AppHandle, state: &AppState) -> Menu<tauri::Wry> {
     let menu = Menu::new(app).unwrap();
 
-    if let (Some(usage), Some(proj)) = (&state.usage, &state.projection) {
-        // Session usage with projection
+    // Claude section
+    let claude_header =
+        MenuItem::with_id(app, "hdr_claude", "Claude", false, None::<&str>).unwrap();
+    let _ = menu.append(&claude_header);
+    if let (Some(usage), Some(proj)) = (&state.usage_claude, &state.projection_claude) {
         if let Some(session) = &proj.session {
-            let indicator = session.status.indicator();
-            let time_remaining = session.format_time_remaining();
-            let item = MenuItem::with_id(
+            let _ = menu.append(&MenuItem::with_id(
                 app,
                 "session",
                 format!(
                     "{} Session: {}% → {}% (resets in {})",
-                    indicator,
+                    session.status.indicator(),
                     session.current_percent as i32,
                     session.projected_percent as i32,
-                    time_remaining
+                    session.format_time_remaining()
                 ),
                 false,
                 None::<&str>,
             )
-            .unwrap();
-            let _ = menu.append(&item);
+            .unwrap());
         }
-
-        // Week (all models) with projection
         if let Some(week_all) = &proj.week_all {
-            let indicator = week_all.status.indicator();
-            let time_remaining = week_all.format_time_remaining();
-            let item = MenuItem::with_id(
+            let _ = menu.append(&MenuItem::with_id(
                 app,
                 "week_all",
                 format!(
                     "{} Week (all): {}% → {}% (resets in {})",
-                    indicator,
+                    week_all.status.indicator(),
                     week_all.current_percent as i32,
                     week_all.projected_percent as i32,
-                    time_remaining
+                    week_all.format_time_remaining()
                 ),
                 false,
                 None::<&str>,
             )
-            .unwrap();
-            let _ = menu.append(&item);
+            .unwrap());
         }
-
-        // Week (Sonnet) with projection
         if let Some(week_sonnet) = &proj.week_sonnet {
-            let indicator = week_sonnet.status.indicator();
-            let time_remaining = week_sonnet.format_time_remaining();
-            let item = MenuItem::with_id(
+            let _ = menu.append(&MenuItem::with_id(
                 app,
                 "week_sonnet",
                 format!(
                     "{} Week (Sonnet): {}% → {}% (resets in {})",
-                    indicator,
+                    week_sonnet.status.indicator(),
                     week_sonnet.current_percent as i32,
                     week_sonnet.projected_percent as i32,
-                    time_remaining
+                    week_sonnet.format_time_remaining()
                 ),
                 false,
                 None::<&str>,
             )
-            .unwrap();
-            let _ = menu.append(&item);
+            .unwrap());
         }
-
-        // Extra usage status
         let extra_text = if usage.extra_usage_enabled {
             "enabled"
         } else {
             "not enabled"
         };
-        let extra = MenuItem::with_id(
-            app,
-            "extra",
-            format!("Extra usage: {}", extra_text),
-            false,
-            None::<&str>,
-        )
-        .unwrap();
-        let _ = menu.append(&extra);
+        let _ = menu.append(
+            &MenuItem::with_id(app, "extra", format!("Extra usage: {}", extra_text), false, None::<&str>)
+                .unwrap(),
+        );
     } else {
-        let loading =
-            MenuItem::with_id(app, "loading", "Loading...", false, None::<&str>).unwrap();
-        let _ = menu.append(&loading);
+        let _ = menu.append(
+            &MenuItem::with_id(app, "claude_loading", "Loading Claude usage...", false, None::<&str>)
+                .unwrap(),
+        );
+    }
+
+    let _ = menu.append(&PredefinedMenuItem::separator(app).unwrap());
+
+    // Codex section
+    let codex_header =
+        MenuItem::with_id(app, "hdr_codex", "Codex", false, None::<&str>).unwrap();
+    let _ = menu.append(&codex_header);
+    if let Some(proj) = &state.projection_codex {
+        if let Some(codex5h) = &proj.codex_five_hour {
+            let _ = menu.append(&MenuItem::with_id(
+                app,
+                "codex_5h",
+                format!(
+                    "{} 5h limit: {}% → {}% (resets in {})",
+                    codex5h.status.indicator(),
+                    codex5h.current_percent as i32,
+                    codex5h.projected_percent as i32,
+                    codex5h.format_time_remaining()
+                ),
+                false,
+                None::<&str>,
+            )
+            .unwrap());
+        }
+        if let Some(codex_week) = &proj.codex_week {
+            let _ = menu.append(&MenuItem::with_id(
+                app,
+                "codex_week",
+                format!(
+                    "{} Weekly limit: {}% → {}% (resets in {})",
+                    codex_week.status.indicator(),
+                    codex_week.current_percent as i32,
+                    codex_week.projected_percent as i32,
+                    codex_week.format_time_remaining()
+                ),
+                false,
+                None::<&str>,
+            )
+            .unwrap());
+        }
+    } else {
+        let _ = menu.append(
+            &MenuItem::with_id(app, "codex_loading", "Loading Codex usage...", false, None::<&str>)
+                .unwrap(),
+        );
     }
 
     // Separator and actions
@@ -243,87 +278,126 @@ fn fetch_and_update(
         guard.settings.clone()
     };
 
-    match usage::fetch_usage() {
-        Ok(usage) => {
-            eprintln!("[NotifAI] fetch_usage succeeded");
-            eprintln!("[NotifAI] Usage data: session={:?}, week_all={:?}, week_sonnet={:?}",
-                usage.current_session_percent,
-                usage.current_week_all_models_percent,
-                usage.current_week_sonnet_percent
-            );
-            eprintln!("[NotifAI] Reset times: session={:?}, week_all={:?}, week_sonnet={:?}",
-                usage.current_session_reset,
-                usage.current_week_all_models_reset,
-                usage.current_week_sonnet_reset
-            );
-        let projection = calculate_all_projections(
-            &usage,
+    // Fetch Claude and Codex usage (independent)
+    let claude_usage = usage::fetch_usage();
+    let codex_usage = codex::fetch_codex_usage(&current_settings.codex_path);
+
+    let mut projection_claude: Option<QuotaProjection> = None;
+    let mut projection_codex: Option<QuotaProjection> = None;
+
+    if let Ok(ref u) = claude_usage {
+        eprintln!("[NotifAI] Claude fetch succeeded");
+        projection_claude = Some(calculate_all_projections(
+            u,
             current_settings.threshold_under_budget,
             current_settings.threshold_on_track,
+        ));
+    } else if let Err(e) = &claude_usage {
+        eprintln!("[NotifAI] Claude fetch failed: {}", e);
+    }
+
+    if let Ok(ref u) = codex_usage {
+        eprintln!("[NotifAI] Codex fetch succeeded");
+        projection_codex = Some(calculate_all_projections(
+            u,
+            current_settings.threshold_under_budget,
+            current_settings.threshold_on_track,
+        ));
+    } else if let Err(e) = &codex_usage {
+        eprintln!("[NotifAI] Codex fetch failed: {}", e);
+    }
+
+    if projection_claude.is_none() && projection_codex.is_none() {
+        eprintln!("[NotifAI] No usage data fetched from any provider");
+        return;
+    }
+
+    if let Ok(u) = &claude_usage {
+        eprintln!(
+            "[NotifAI] Claude usage parsed: session={:?}, week_all={:?}, week_sonnet={:?}",
+            u.current_session_percent, u.current_week_all_models_percent, u.current_week_sonnet_percent
         );
-        eprintln!("[NotifAI] Projection: session={:?}, week_all={:?}, week_sonnet={:?}",
-            projection.session.as_ref().map(|p| p.projected_percent),
-            projection.week_all.as_ref().map(|p| p.projected_percent),
-            projection.week_sonnet.as_ref().map(|p| p.projected_percent)
+    }
+    if let Ok(u) = &codex_usage {
+        eprintln!(
+            "[NotifAI] Codex usage parsed: five_hour_left={:?}, week_left={:?}",
+            u.codex_five_hour_left, u.codex_week_left
         );
-        let worst_status = projection.worst_status();
-        eprintln!("[NotifAI] Worst status: {:?}", worst_status);
+    }
+
+    // Overall worst status for tray icon
+    let mut overall_status = BudgetStatus::Unknown;
+    for status in [
+        projection_claude.as_ref().map(|p| p.worst_status()),
+        projection_codex.as_ref().map(|p| p.worst_status()),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        overall_status = match (overall_status, status) {
+            (BudgetStatus::OverBudget, _) => BudgetStatus::OverBudget,
+            (_, BudgetStatus::OverBudget) => BudgetStatus::OverBudget,
+            (BudgetStatus::OnTrack, _) => BudgetStatus::OnTrack,
+            (_, BudgetStatus::OnTrack) => BudgetStatus::OnTrack,
+            (BudgetStatus::UnderBudget, _) => BudgetStatus::UnderBudget,
+            (_, BudgetStatus::UnderBudget) => BudgetStatus::UnderBudget,
+            _ => status,
+        };
+    }
+    eprintln!("[NotifAI] Worst status overall: {:?}", overall_status);
 
         // Check and send notifications (if enabled)
         if current_settings.notifications_enabled {
-            let notif_guard = notif_state.lock().unwrap();
-            let notifications = check_notifications(
-                &projection,
-                &notif_guard,
-                current_settings.notify_approaching_percent,
-                current_settings.notify_over_budget_percent,
-            );
-            drop(notif_guard);
-
-            for info in notifications {
-                // Send the notification
-                let _ = app
-                    .notification()
-                    .builder()
-                    .title(&info.title())
-                    .body(&info.body())
-                    .show();
-
-                // Record that we sent it
-                let mut notif_guard = notif_state.lock().unwrap();
-                notif_guard.record_notification(info.quota_type, info.severity, info.reset_time);
+            let mut notif_guard = notif_state.lock().unwrap();
+            for proj in [projection_claude.as_ref(), projection_codex.as_ref()].into_iter().flatten() {
+                let notifications = check_notifications(
+                    proj,
+                    &notif_guard,
+                    current_settings.notify_approaching_percent,
+                    current_settings.notify_over_budget_percent,
+                );
+                for info in notifications {
+                    let _ = app
+                        .notification()
+                        .builder()
+                        .title(&info.title())
+                        .body(&info.body())
+                        .show();
+                    notif_guard.record_notification(info.quota_type, info.severity, info.reset_time);
+                }
             }
         }
 
         // Update state
         {
             let mut state_guard = state.lock().unwrap();
-            state_guard.usage = Some(usage);
-            state_guard.projection = Some(projection);
+            state_guard.usage_claude = claude_usage.ok();
+            state_guard.usage_codex = codex_usage.ok();
+            state_guard.projection_claude = projection_claude;
+            state_guard.projection_codex = projection_codex;
             state_guard.last_refresh = Some(Local::now());
             eprintln!("[NotifAI] State updated successfully");
         }
 
         // Update menu
         let state_guard = state.lock().unwrap();
-        eprintln!("[NotifAI] Building menu with state: usage={}, projection={}",
-            state_guard.usage.is_some(),
-            state_guard.projection.is_some()
+        eprintln!(
+            "[NotifAI] Building menu with state: usage_claude={}, usage_codex={}, proj_claude={}, proj_codex={}",
+            state_guard.usage_claude.is_some(),
+            state_guard.usage_codex.is_some(),
+            state_guard.projection_claude.is_some(),
+            state_guard.projection_codex.is_some()
         );
         let menu = build_usage_menu(app, &state_guard);
         if let Some(tray) = app.tray_by_id("main") {
             let _ = tray.set_menu(Some(menu));
             // Update icon based on status
-            update_tray_icon(&tray, worst_status);
+            update_tray_icon(&tray, overall_status);
             eprintln!("[NotifAI] Menu and icon updated");
         } else {
             eprintln!("[NotifAI] ERROR: Could not find tray with id 'main'");
         }
-        }
-        Err(e) => {
-            eprintln!("[NotifAI] fetch_usage failed: {}", e);
-        }
-    }
+    
 }
 
 /// Start the auto-refresh background loop
