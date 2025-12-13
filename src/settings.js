@@ -19,7 +19,8 @@ const DEFAULTS = {
   threshold_on_track: 115,
   notifications_enabled: true,
   notify_approaching_percent: 100,
-  notify_over_budget_percent: 115
+  notify_over_budget_percent: 115,
+  codex_path: 'codex'
 };
 
 // Load settings on page load
@@ -42,6 +43,7 @@ function populateForm(settings) {
   document.getElementById('notifications-enabled').checked = settings.notifications_enabled;
   document.getElementById('notify-approaching').value = settings.notify_approaching_percent;
   document.getElementById('notify-over').value = settings.notify_over_budget_percent;
+  document.getElementById('codex-path').value = settings.codex_path || 'codex';
 
   updateNotificationFieldsState();
 }
@@ -53,7 +55,8 @@ function getFormValues() {
     threshold_on_track: parseFloat(document.getElementById('on-track').value),
     notifications_enabled: document.getElementById('notifications-enabled').checked,
     notify_approaching_percent: parseFloat(document.getElementById('notify-approaching').value),
-    notify_over_budget_percent: parseFloat(document.getElementById('notify-over').value)
+    notify_over_budget_percent: parseFloat(document.getElementById('notify-over').value),
+    codex_path: document.getElementById('codex-path').value.trim()
   };
 }
 
@@ -90,6 +93,10 @@ function validateForm() {
 
   if (values.notify_over_budget_percent < values.notify_approaching_percent) {
     errors.push('Over budget notification must be >= approaching notification');
+  }
+
+  if (values.codex_path.length === 0) {
+    errors.push('Codex path cannot be empty');
   }
 
   return errors;

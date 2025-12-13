@@ -9,6 +9,8 @@ pub enum QuotaType {
     Session,
     WeekAll,
     WeekSonnet,
+    Codex5h,
+    CodexWeek,
 }
 
 impl QuotaType {
@@ -17,6 +19,8 @@ impl QuotaType {
             QuotaType::Session => "Session",
             QuotaType::WeekAll => "Week (all models)",
             QuotaType::WeekSonnet => "Week (Sonnet)",
+            QuotaType::Codex5h => "Codex 5h",
+            QuotaType::CodexWeek => "Codex week",
         }
     }
 }
@@ -118,6 +122,8 @@ pub fn check_notifications(
     check_quota(QuotaType::Session, &projection.session);
     check_quota(QuotaType::WeekAll, &projection.week_all);
     check_quota(QuotaType::WeekSonnet, &projection.week_sonnet);
+    check_quota(QuotaType::Codex5h, &projection.codex_five_hour);
+    check_quota(QuotaType::CodexWeek, &projection.codex_week);
 
     notifications
 }

@@ -22,10 +22,15 @@ pub struct UsageData {
     pub current_week_sonnet_percent: Option<f32>,
     pub current_week_sonnet_reset: Option<String>,
     pub extra_usage_enabled: bool,
+    // Codex (OpenAI) limits
+    pub codex_five_hour_left: Option<f32>,
+    pub codex_five_hour_reset: Option<String>,
+    pub codex_week_left: Option<f32>,
+    pub codex_week_reset: Option<String>,
 }
 
 impl UsageData {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             current_session_percent: None,
             current_session_reset: None,
@@ -34,6 +39,10 @@ impl UsageData {
             current_week_sonnet_percent: None,
             current_week_sonnet_reset: None,
             extra_usage_enabled: false,
+            codex_five_hour_left: None,
+            codex_five_hour_reset: None,
+            codex_week_left: None,
+            codex_week_reset: None,
         }
     }
 }
@@ -223,11 +232,6 @@ fn run_claude_usage() -> Result<String> {
 
     // Kill the process if still running
     let _ = child.kill();
-
-    debug_log!("Raw output length: {} bytes", output.len());
-    if output.len() < 500 {
-        debug_log!("Raw output: {:?}", output);
-    }
 
     Ok(output)
 }

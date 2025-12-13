@@ -64,12 +64,21 @@ pub struct QuotaProjection {
     pub session: Option<ProjectedUsage>,
     pub week_all: Option<ProjectedUsage>,
     pub week_sonnet: Option<ProjectedUsage>,
+    // Codex quotas
+    pub codex_five_hour: Option<ProjectedUsage>,
+    pub codex_week: Option<ProjectedUsage>,
 }
 
 impl QuotaProjection {
     /// Returns the worst status across all quotas
     pub fn worst_status(&self) -> BudgetStatus {
-        [&self.session, &self.week_all, &self.week_sonnet]
+        [
+            &self.session,
+            &self.week_all,
+            &self.week_sonnet,
+            &self.codex_five_hour,
+            &self.codex_week,
+        ]
             .iter()
             .filter_map(|p| p.as_ref())
             .map(|p| p.status)
@@ -98,6 +107,9 @@ pub fn parse_reset_time(reset_str: &str) -> Option<DateTime<Local>> {
         r"(\w+)\s+(\d{1,2})\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*\(([^)]+)\)",
     )
     .ok()?;
+
+    // Pattern 3: 24-hour local time without timezone, e.g. "resets 13:35" or "13:35"
+    let time_24_local_re = Regex::new(r"(?i)(?:resets\s+)?(\d{1,2}):(\d{2})").ok()?;
 
     // Try date+time format first (more specific)
     if let Some(caps) = date_time_re.captures(reset_str) {
@@ -137,6 +149,32 @@ pub fn parse_reset_time(reset_str: &str) -> Option<DateTime<Local>> {
         }
 
         return Some(tz_dt.with_timezone(&Local));
+    }
+
+    // Try 24h local time format (assume today or tomorrow, local timezone)
+    if let Some(caps) = time_24_local_re.captures(reset_str) {
+        let hour: u32 = caps.get(1)?.as_str().parse().ok()?;
+        let minute: u32 = caps.get(2)?.as_str().parse().ok()?;
+
+        if hour > 23 || minute > 59 {
+            return None;
+        }
+
+        let tz = Local;
+        let now = Local::now();
+        let naive_time = NaiveTime::from_hms_opt(hour, minute, 0)?;
+
+        let naive_dt = NaiveDateTime::new(now.date_naive(), naive_time);
+        let dt = tz.from_local_datetime(&naive_dt).single()?;
+
+        if dt <= now {
+            let tomorrow = now.date_naive() + Duration::days(1);
+            let naive_dt = NaiveDateTime::new(tomorrow, naive_time);
+            let dt = tz.from_local_datetime(&naive_dt).single()?;
+            return Some(dt);
+        }
+
+        return Some(dt);
     }
 
     // Try time-only format
@@ -348,10 +386,52 @@ pub fn calculate_all_projections(
                 })
         });
 
+    // Codex 5h limit: convert \"left\" to \"used\"
+    let codex_five_hour = usage
+        .codex_five_hour_left
+        .map(|left| 100.0 - left)
+        .and_then(|pct_used| {
+            usage
+                .codex_five_hour_reset
+                .as_ref()
+                .and_then(|reset| parse_reset_time(reset))
+                .map(|reset_time| {
+                    calculate_projection(
+                        pct_used,
+                        reset_time,
+                        PeriodType::Session,
+                        threshold_under_budget,
+                        threshold_over_budget,
+                    )
+                })
+        });
+
+    // Codex weekly limit
+    let codex_week = usage
+        .codex_week_left
+        .map(|left| 100.0 - left)
+        .and_then(|pct_used| {
+            usage
+                .codex_week_reset
+                .as_ref()
+                .and_then(|reset| parse_reset_time(reset))
+                .map(|reset_time| {
+                    calculate_projection(
+                        pct_used,
+                        reset_time,
+                        PeriodType::Weekly,
+                        threshold_under_budget,
+                        threshold_over_budget,
+                    )
+                })
+        });
+
     QuotaProjection {
         session,
         week_all,
         week_sonnet,
+        codex_five_hour,
+        codex_week,
     }
 }
 
@@ -421,5 +501,11 @@ mod tests {
         assert_eq!(format_duration_secs(86400 + 3600), "1d 1h");
         assert_eq!(format_duration_secs(300), "5m");
         assert_eq!(format_duration_secs(-10), "now");
+    }
+
+    #[test]
+    fn test_parse_24h_local_time() {
+        let result = parse_reset_time("resets 13:35");
+        assert!(result.is_some());
     }
 }
