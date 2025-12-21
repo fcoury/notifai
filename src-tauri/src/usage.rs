@@ -259,3 +259,46 @@ pub fn fetch_usage() -> Result<UsageData> {
 
     Ok(data)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_usage_output() {
+        let sample_output = "\
+Current session
+████████▌                                          17% used
+Resets 1:59am (America/Sao_Paulo)
+
+Current week (all models)
+████████████████████████████▌                      57% used
+Resets Dec 22 at 3:59pm (America/Sao_Paulo)
+
+Current week (Sonnet only)
+████                                               8% used
+Resets Dec 22 at 3:59pm (America/Sao_Paulo)
+
+Extra usage
+Extra usage not enabled • /extra-usage to enable
+";
+        let data = parse_usage_output(sample_output).unwrap();
+
+        assert_eq!(data.current_session_percent, Some(17.0));
+        assert_eq!(
+            data.current_session_reset.as_deref(),
+            Some("1:59am (America/Sao_Paulo)")
+        );
+        assert_eq!(data.current_week_all_models_percent, Some(57.0));
+        assert_eq!(
+            data.current_week_all_models_reset.as_deref(),
+            Some("Dec 22 at 3:59pm (America/Sao_Paulo)")
+        );
+        assert_eq!(data.current_week_sonnet_percent, Some(8.0));
+        assert_eq!(
+            data.current_week_sonnet_reset.as_deref(),
+            Some("Dec 22 at 3:59pm (America/Sao_Paulo)")
+        );
+        assert_eq!(data.extra_usage_enabled, false);
+    }
+}
