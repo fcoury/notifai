@@ -133,6 +133,7 @@ fn run_claude_usage() -> Result<String> {
     debug_log!("Using claude path: {}", claude_path);
 
     let mut cmd = CommandBuilder::new(&claude_path);
+    cmd.arg("--dangerously-skip-permissions");
     cmd.arg("/usage");
 
     // Spawn the process
