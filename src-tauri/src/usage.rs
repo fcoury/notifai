@@ -6,9 +6,12 @@ use std::io::Read;
 use std::time::{Duration, Instant};
 
 /// Debug log for usage fetching - writes to stderr which shows in dev console
+/// Only logs if NOTIFAI_DEBUG env var is set to "1" or "true"
 macro_rules! debug_log {
     ($($arg:tt)*) => {
-        eprintln!("[NotifAI] {}", format!($($arg)*));
+        if std::env::var("NOTIFAI_DEBUG").map(|v| v == "1" || v == "true").unwrap_or(false) {
+            eprintln!("[NotifAI] {}", format!($($arg)*))
+        }
     };
 }
 
@@ -48,9 +51,12 @@ impl UsageData {
 }
 
 fn parse_usage_output(raw_output: &str) -> Result<UsageData> {
+    debug_log!("Parsing output ({} bytes raw)", raw_output.len());
+
     // Strip ANSI escape codes
     let stripped = strip_ansi_escapes::strip(raw_output);
     let output = String::from_utf8_lossy(&stripped);
+    debug_log!("Stripped output ({} bytes):\n{}", output.len(), output);
 
     let mut data = UsageData::new();
 
@@ -65,21 +71,27 @@ fn parse_usage_output(raw_output: &str) -> Result<UsageData> {
 
     let mut current_section = "";
 
-    for line in lines.iter() {
+    for (i, line) in lines.iter().enumerate() {
         let line_lower = line.to_lowercase();
 
         // Detect sections
         if line_lower.contains("current session") {
+            debug_log!("Line {}: Detected section 'session': {}", i, line);
             current_section = "session";
         } else if line_lower.contains("current week") && line_lower.contains("all models") {
+            debug_log!("Line {}: Detected section 'week_all': {}", i, line);
             current_section = "week_all";
         } else if line_lower.contains("current week") && line_lower.contains("sonnet") {
+            debug_log!("Line {}: Detected section 'week_sonnet': {}", i, line);
             current_section = "week_sonnet";
         } else if line_lower.contains("extra usage") {
+            debug_log!("Line {}: Detected section 'extra': {}", i, line);
             current_section = "extra";
             if line_lower.contains("not enabled") {
+                debug_log!("  -> Extra usage: NOT enabled");
                 data.extra_usage_enabled = false;
             } else if line_lower.contains("enabled") {
+                debug_log!("  -> Extra usage: enabled");
                 data.extra_usage_enabled = true;
             }
         }
@@ -88,11 +100,12 @@ fn parse_usage_output(raw_output: &str) -> Result<UsageData> {
         if let Some(caps) = percent_re.captures(line) {
             if let Some(pct) = caps.get(1) {
                 let percent: f32 = pct.as_str().parse().unwrap_or(0.0);
+                debug_log!("Line {}: Found {}% in section '{}': {}", i, percent, current_section, line);
                 match current_section {
                     "session" => data.current_session_percent = Some(percent),
                     "week_all" => data.current_week_all_models_percent = Some(percent),
                     "week_sonnet" => data.current_week_sonnet_percent = Some(percent),
-                    _ => {}
+                    _ => { debug_log!("  -> Ignoring percentage (unknown section)"); },
                 }
             }
         }
@@ -101,11 +114,12 @@ fn parse_usage_output(raw_output: &str) -> Result<UsageData> {
         if let Some(caps) = reset_re.captures(line) {
             if let Some(reset) = caps.get(1) {
                 let reset_str = reset.as_str().trim().to_string();
+                debug_log!("Line {}: Found reset '{}' in section '{}': {}", i, reset_str, current_section, line);
                 match current_section {
                     "session" => data.current_session_reset = Some(reset_str),
                     "week_all" => data.current_week_all_models_reset = Some(reset_str),
                     "week_sonnet" => data.current_week_sonnet_reset = Some(reset_str),
-                    _ => {}
+                    _ => { debug_log!("  -> Ignoring reset time (unknown section)"); },
                 }
             }
         }
@@ -135,13 +149,14 @@ fn run_claude_usage() -> Result<String> {
     let mut cmd = CommandBuilder::new(&claude_path);
     cmd.arg("--dangerously-skip-permissions");
     cmd.arg("/usage");
+    debug_log!("Command: {} --dangerously-skip-permissions /usage", claude_path);
 
     // Spawn the process
     let mut child = pair
         .slave
         .spawn_command(cmd)
         .context("Failed to spawn claude")?;
-    debug_log!("Claude process spawned");
+    debug_log!("Claude process spawned successfully");
 
     // Drop the slave to avoid blocking
     drop(pair.slave);
@@ -171,11 +186,24 @@ fn run_claude_usage() -> Result<String> {
             }
             Ok(n) => {
                 let chunk = String::from_utf8_lossy(&buffer[..n]);
+                debug_log!("Read {} bytes", n);
+
+                // Log raw chunk (escape control chars for readability)
+                let escaped_chunk: String = chunk.chars().map(|c| {
+                    if c.is_control() && c != '\n' && c != '\r' {
+                        format!("\\x{:02x}", c as u32).chars().collect::<Vec<_>>()
+                    } else {
+                        vec![c]
+                    }
+                }).flatten().collect();
+                debug_log!("Raw chunk: {}", escaped_chunk);
+
                 output.push_str(&chunk);
                 current_screen.push_str(&chunk);
 
                 // Detect screen clear sequence [2J (clear screen)
                 if chunk.contains("\x1b[2J") || chunk.contains("[2J") {
+                    debug_log!("Screen clear detected");
                     current_screen.clear();
                     current_screen.push_str(&chunk);
                 }
@@ -184,11 +212,24 @@ fn run_claude_usage() -> Result<String> {
                 let stripped = strip_ansi_escapes::strip(&current_screen);
                 let clean_screen = String::from_utf8_lossy(&stripped);
 
+                // Log stripped content periodically (every 500+ chars or significant change)
+                if clean_screen.len() > 100 {
+                    debug_log!("Clean screen length: {} chars", clean_screen.len());
+                    // Show first 200 chars of clean screen (safely handle UTF-8 boundaries)
+                    let preview: String = clean_screen.chars().take(200).collect();
+                    debug_log!("Clean screen start: {}", preview.replace('\n', "\\n"));
+                }
+
                 // Check current screen state
                 let has_loading = clean_screen.contains("Loading usage data");
                 let has_percent = clean_screen.contains("% used");
                 let has_current_session = clean_screen.contains("Current session");
                 let has_extra_usage = clean_screen.contains("Extra usage");
+
+                debug_log!(
+                    "State: loading={}, percent={}, session={}, extra={}",
+                    has_loading, has_percent, has_current_session, has_extra_usage
+                );
 
                 if has_loading && !saw_loading {
                     debug_log!("Detected loading screen");
@@ -201,11 +242,13 @@ fn run_claude_usage() -> Result<String> {
                 // can linger in our buffer. The presence of all data fields is sufficient.
                 if has_percent && has_current_session && has_extra_usage {
                     debug_log!("Success: Found complete usage data");
+                    debug_log!("Final clean screen:\n{}", clean_screen);
                     output = current_screen;
                     break;
                 }
             }
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                // No data available yet, wait a bit
                 std::thread::sleep(Duration::from_millis(50));
             }
             Err(e) => {
@@ -217,14 +260,23 @@ fn run_claude_usage() -> Result<String> {
         // Check if process exited
         if let Ok(Some(status)) = child.try_wait() {
             debug_log!("Process exited with status: {:?}", status);
+            debug_log!("Draining remaining output...");
+            let mut drained_bytes = 0;
             loop {
                 match reader.read(&mut buffer) {
-                    Ok(0) => break,
+                    Ok(0) => {
+                        debug_log!("Drain complete: {} additional bytes", drained_bytes);
+                        break;
+                    }
                     Ok(n) => {
+                        drained_bytes += n;
                         let chunk = String::from_utf8_lossy(&buffer[..n]);
                         output.push_str(&chunk);
                     }
-                    Err(_) => break,
+                    Err(e) => {
+                        debug_log!("Drain ended with error: {}", e);
+                        break;
+                    }
                 }
             }
             break;
@@ -232,8 +284,10 @@ fn run_claude_usage() -> Result<String> {
     }
 
     // Kill the process if still running
+    debug_log!("Loop ended, killing process if still running");
     let _ = child.kill();
 
+    debug_log!("Total output length: {} bytes", output.len());
     Ok(output)
 }
 
